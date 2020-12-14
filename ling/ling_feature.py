@@ -149,7 +149,6 @@ class LingFeatureMaker():
         self.formal_dict = defaultdict(lambda : 1)
         self.informal_dict = defaultdict(lambda : 1)
         
-        #if formal_corpus_path is not None:
         with open(formal_corpus_path) as f:
             formal_text = [nltk.tokenize.word_tokenize(line) for line in f.read().splitlines()]
             temp = [item for sublist in formal_text for item in sublist]
@@ -157,19 +156,12 @@ class LingFeatureMaker():
             for word, count in formal_dict.items():
                 self.formal_dict[word] = count + 1
 
-        #else:
-        #    self.formal_dict = None
-        
-        #if informal_corpus_path is not None:
         with open(informal_corpus_path) as f:
             temp = [nltk.tokenize.word_tokenize(line) for line in f.read().splitlines()]
             temp = [item for sublist in temp for item in sublist]
             informal_dict = Counter(temp)
             for word, count in informal_dict.items():
                 self.informal_dict[word] = count + 1
-
-        #else:
-        #    self.informal_dict = None
 
         if self.formal_dict is not None and self.informal_dict is not None:
             self.N = np.sum([count for _, count in self.informal_dict.items()]) / np.sum([count for _, count in self.formal_dict.items()])
@@ -214,10 +206,17 @@ class LingFeatureMaker():
     def has_emoticon(self, sent):
         return float(any([x in sent for x in EMOTICONS]))
 
+    def has_emoticon_seq(self, sent):
+        return np.array(any([x in sent for x in EMOTICONS])).astype('float')
+
+    def pos_tags(self, sent):
+        return [x[1] for x in nltk.pos_tag(nltk.tokenize.word_tokenize(sent))]
+
     def embed_pos(self, sent):
         x = np.zeros(len(self.pos_dict))
         pos_tags = [x[1] for x in nltk.pos_tag(nltk.tokenize.word_tokenize(sent))]
         return self.pos_lm.score(pos_tags)
+
 
 
 def make_model_inp(formal_data_path, informal_data_path):
