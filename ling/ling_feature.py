@@ -154,7 +154,7 @@ class LingFeatureMaker():
             formal_text = [nltk.tokenize.word_tokenize(line) for line in f.read().splitlines()]
             temp = [item for sublist in formal_text for item in sublist]
             formal_dict = Counter(temp)
-            for word, count in formal_dict:
+            for word, count in formal_dict.items():
                 self.formal_dict[word] = count + 1
 
         #else:
@@ -165,7 +165,7 @@ class LingFeatureMaker():
             temp = [nltk.tokenize.word_tokenize(line) for line in f.read().splitlines()]
             temp = [item for sublist in temp for item in sublist]
             informal_dict = Counter(temp)
-            for word, count in informal_dict:
+            for word, count in informal_dict.items():
                 self.informal_dict[word] = count + 1
 
         #else:
@@ -182,7 +182,7 @@ class LingFeatureMaker():
             pos_text = []
             for text in formal_text:
                 pos_text.append([x[1] for x in nltk.pos_tag(text)])
-            self.pos_lm = train_pos_lm(pos_text)
+            self.pos_lm = self.train_pos_lm(pos_text)
 
     def train_pos_lm(self, pos_text):
         train_data, padded_sents = padded_everygram_pipeline(3, pos_text)
@@ -209,19 +209,19 @@ class LingFeatureMaker():
         def _has_suffix(word):
             return any([word.endswith(x) for x in LATIN_SUFIX])
         
-        return np.array([_has_suffix(x) or _has_prefix(x) for x in nltk.tokenize.word_tokenize(sent)]).float()
+        return np.array([_has_suffix(x) or _has_prefix(x) for x in nltk.tokenize.word_tokenize(sent)]).astype(float)
 
     def has_emoticon(self, sent):
         return float(any([x in sent for x in EMOTICONS]))
 
-    def pos_lm(self, sent):
+    def embed_pos(self, sent):
         x = np.zeros(len(self.pos_dict))
         pos_tags = [x[1] for x in nltk.pos_tag(nltk.tokenize.word_tokenize(sent))]
-        return self.lm_model.score(pos_tags)
+        return self.pos_lm.score(pos_tags)
 
 
 def make_model_inp(formal_data_path, informal_data_path):
-    ling_maker = LingFeatureMaker(formal_corpus_path=formal_data_path, informal_corpus_path=informal_data_path)
+    ling_maker = LingFeatureMaker(formal_corpus_path=formal_data_path, informal_corpus_path=informal_data_path, use_pos_lm=True)
     x = []
     y = []
     with open(formal_data_path) as f:
@@ -231,7 +231,7 @@ def make_model_inp(formal_data_path, informal_data_path):
             x2 = np.mean(ling_maker.word_length(line))
             x3 = np.mean(ling_maker.latinate(line))
             x4 = ling_maker.has_emoticon(line)
-            x5 = ling_maker.pos_lm(line)
+            x5 = ling_maker.embed_pos(line)
             x.append(np.concatenate([x1, x2, x3, x4, x5]))
             y.append(1)
 
@@ -242,7 +242,7 @@ def make_model_inp(formal_data_path, informal_data_path):
             x2 = np.mean(ling_maker.word_length(line))
             x3 = np.mean(ling_maker.latinate(line))
             x4 = ling_maker.has_emoticon(line)
-            x5 = ling_maker.pos_lm(line)
+            x5 = ling_maker.embed_pos(line)
             x.append(np.concatenate([x1, x2, x3, x4, x5]))
             y.append(0)
     x = np.stack(x, axis=0)
