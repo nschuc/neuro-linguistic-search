@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import random
+import typer
 
 ds_path = '/miniscratch/comp_550_project/gyafc/Family_Relationships_comb/'
 
@@ -17,31 +18,21 @@ class GYAFCDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.labels)
 
-#train data
-train_texts, train_labels = [], []
-informal_text = open(ds_path + 'train.informal-formal.informal').readlines()
-train_texts.extend([s[:-1] for s in informal_text])
-train_labels.extend([0 for i in range(len(informal_text))])
-formal_text = open(ds_path + 'train.informal-formal.formal').readlines()
-train_texts.extend([s[:-1] for s in formal_text])
-train_labels.extend([1 for i in range(len(formal_text))])
-data = list(zip(train_texts, train_labels))
-random.shuffle(data)
-train_texts, train_labels = zip(*data)
+def load_data(split: str):
+    #train data
+    texts, labels = [], []
+    informal_text = open(ds_path + f'{split}.informal-formal.informal').readlines()
+    texts.extend([s[:-1] for s in informal_text])
+    labels.extend([0 for i in range(len(informal_text))])
+    formal_text = open(ds_path + f'{split}.informal-formal.formal').readlines()
+    texts.extend([s[:-1] for s in formal_text])
+    labels.extend([1 for i in range(len(formal_text))])
+    data = list(zip(texts, labels))
+    random.shuffle(data)
+    texts, labels = zip(*data)
 
-#val data
-val_texts, val_labels = [], []
-informal_text = open(ds_path + 'valid.informal-formal.informal').readlines()
-val_texts.extend([s[:-1] for s in informal_text])
-val_labels.extend([0 for i in range(len(informal_text))])
-formal_text = open(ds_path + 'valid.informal-formal.formal').readlines()
-val_texts.extend([s[:-1] for s in formal_text])
-val_labels.extend([1 for i in range(len(formal_text))])
-data = list(zip(val_texts, val_labels))
-random.shuffle(data)
-val_texts, val_labels = zip(*data)
+    return texts, labels
 
-print (len(train_texts), len(train_labels), len(val_texts), len(val_labels))
 
 ds_path = '/miniscratch/comp_550_project/gyafc/Family_Relationships_comb/'
 
@@ -54,6 +45,7 @@ formal_test_path, informal_test_path = ds_path + 'test.informal-formal.formal', 
 import tqdm
 import os
 
+
 def build_linguistic_features(lfm, texts):
     feats = []
     for line in tqdm.tqdm(texts):
@@ -65,17 +57,6 @@ def build_linguistic_features(lfm, texts):
         feats.append(np.array([x1, x2, x3, x4, x5]))
     return feats
 
-if os.path.exists('ling-feats/train-feats.npy'):
-    with open('ling-feats/train-feats.npy', 'rb') as f:
-        train_ling_feats = np.load(f)
-else:
-    train_ling_feats = build_linguistic_features(lfm, train_texts)
-    
-if os.path.exists('ling-feats/val-feats.npy'):
-    with open('ling-feats/val-feats.npy', 'rb') as f:
-        val_ling_feats = np.load(f)
-else:
-    val_ling_feats = build_linguistic_features(lfm, val_texts)
 
 class LinguisticFeaturesDataset(torch.utils.data.Dataset):
     def __init__(self, encodings, linguistic_feats, labels, ):
@@ -192,35 +173,114 @@ class LingBertaFormalityClassifier(BertPreTrainedModel):
             attentions=outputs.attentions,
         )
 
-#tokenize import nltktext data
-tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
-train_encodings = tokenizer(train_texts, truncation=True, padding=True)
-val_encodings = tokenizer(val_texts, truncation=True, padding=True)
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 
-train_dataset = LinguisticFeaturesDataset(train_encodings, train_ling_feats, train_labels)
-val_dataset = LinguisticFeaturesDataset(val_encodings, val_ling_feats, val_labels)
+def compute_metrics(pred):
+    labels = pred.label_ids
+    preds = pred.predictions.argmax(-1)
+    precision, recall, f1, _ = precision_recall_fscore_support(labels, preds, average='binary')
+    acc = accuracy_score(labels, preds)
+    return {
+        'accuracy': acc,
+        'f1': f1,
+        'precision': precision,
+        'recall': recall
+}
 
-training_args = TrainingArguments(
-    output_dir='roberta-results/',          # output directory
-    num_train_epochs=2,              # total number of training epochs
-    per_device_train_batch_size=8,  # batch size per device during training
-    per_device_eval_batch_size=8,   # batch size for evaluation
-    #warmup_steps=500,                # number of warmup steps for learning rate scheduler
-    weight_decay=0.01,               # strength of weight decay
-    logging_dir='./logs',            # directory for storing logs
-    logging_steps=25000,
-    save_steps=13000,
-    fp16=True,
-    learning_rate=1e-6
-)
 
-model = LingBertaFormalityClassifier.from_pretrained('roberta-base', return_dict=True)
+def main(train: bool = False, evaluate: bool = False, test: bool = False, ckpt: str = 'checkpoint-52000', pred_path: str = "preds.txt"):
 
-trainer = Trainer(
-    model=model,                         # the instantiated 🤗 Transformers model to be trained
-    args=training_args,                  # training arguments, defined above
-    train_dataset=train_dataset,         # training dataset
-    eval_dataset=val_dataset             # evaluation dataset
-)
+    if train or evaluate:
+        print("nope")
+        train_texts, train_labels = load_data('train')
+        val_texts, val_labels = load_data('valid')
 
-trainer.train()
+        if os.path.exists(f'ling-feats/train-feats.npy'):
+            with open('ling-feats/train-feats.npy', 'rb') as f:
+                train_ling_feats = np.load(f)
+        else:
+            lfm = LingFeatureMaker(formal_train_path, informal_train_path, use_pos_lm=True)
+            train_ling_feats = build_linguistic_features(lfm, train_texts)
+            
+        if os.path.exists('ling-feats/val-feats.npy'):
+            with open('ling-feats/val-feats.npy', 'rb') as f:
+                val_ling_feats = np.load(f)
+        else:
+            lfm = LingFeatureMaker(formal_val_path, informal_val_path, use_pos_lm=True)
+            val_ling_feats = build_linguistic_features(lfm, val_texts)
+
+
+        tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
+        train_encodings = tokenizer(train_texts, truncation=True, padding=True)
+        val_encodings = tokenizer(val_texts, truncation=True, padding=True)
+
+        train_dataset = LinguisticFeaturesDataset(train_encodings, train_ling_feats, train_labels)
+        val_dataset = LinguisticFeaturesDataset(val_encodings, val_ling_feats, val_labels)
+
+    print("hello")
+
+    if train:
+        model = LingBertaFormalityClassifier.from_pretrained('roberta-base', return_dict=True)
+
+    if evaluate or test:
+        model = LingBertaFormalityClassifier.from_pretrained(f'roberta-results/{ckpt}', return_dict=True)
+
+    print("so slow")
+
+    training_args = TrainingArguments(
+        output_dir='roberta-results/',          # output directory
+        num_train_epochs=2,              # total number of training epochs
+        per_device_train_batch_size=8,  # batch size per device during training
+        per_device_eval_batch_size=8,   # batch size for evaluation
+        #warmup_steps=500,                # number of warmup steps for learning rate scheduler
+        weight_decay=0.01,               # strength of weight decay
+        logging_dir='./logs',            # directory for storing logs
+        logging_steps=25000,
+        save_steps=13000,
+        fp16=True,
+        learning_rate=1e-6
+    )
+
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=train_dataset if train else None,
+        eval_dataset=val_dataset if evaluate else None,
+        compute_metrics=compute_metrics
+    )
+
+    if train:
+        trainer.train()
+
+    if evaluate:
+        trainer.evaluate()
+
+    print("test time")
+
+    if test:
+        test_texts, test_labels = load_data('test')
+
+        if os.path.exists(f'ling-feats/test-feats.npy'):
+            with open('ling-feats/test-feats.npy', 'rb') as f:
+                test_ling_feats = np.load(f)
+        else:
+            lfm = LingFeatureMaker(formal_test_path, informal_test_path, use_pos_lm=True)
+            test_ling_feats = build_linguistic_features(lfm, test_texts)
+            
+        tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
+        model = LingBertaFormalityClassifier.from_pretrained(f'roberta-results/{ckpt}', return_dict=True)
+
+        test_encodings = tokenizer(test_texts, truncation=True, padding=True)
+        test_dataset = LinguisticFeaturesDataset(test_encodings, test_ling_feats, test_labels)
+
+        preds, labels, metrics = trainer.predict(test_dataset)
+        print(metrics)
+        preds = ['1' if x[1]>x[0] else '0' for x in preds]
+        f = open('preds.txt', 'w')
+        f.write('\n'.join(preds))
+        f.close()
+
+
+if __name__ == "__main__":
+    typer.run(main)
+
