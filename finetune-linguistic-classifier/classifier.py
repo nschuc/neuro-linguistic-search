@@ -18,7 +18,7 @@ class GYAFCDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.labels)
 
-def load_data(split: str):
+def load_data(split: str, shuffle: bool = False):
     #train data
     texts, labels = [], []
     informal_text = open(ds_path + f'{split}.informal-formal.informal').readlines()
@@ -27,9 +27,11 @@ def load_data(split: str):
     formal_text = open(ds_path + f'{split}.informal-formal.formal').readlines()
     texts.extend([s[:-1] for s in formal_text])
     labels.extend([1 for i in range(len(formal_text))])
-    data = list(zip(texts, labels))
-    random.shuffle(data)
-    texts, labels = zip(*data)
+
+    if shuffle:
+        data = list(zip(texts, labels))
+        random.shuffle(data)
+        texts, labels = zip(*data)
 
     return texts, labels
 
@@ -191,8 +193,7 @@ def compute_metrics(pred):
 def main(train: bool = False, evaluate: bool = False, test: bool = False, ckpt: str = 'checkpoint-52000', pred_path: str = "preds.txt"):
 
     if train or evaluate:
-        print("nope")
-        train_texts, train_labels = load_data('train')
+        train_texts, train_labels = load_data('train', shuffle=True)
         val_texts, val_labels = load_data('valid')
 
         if os.path.exists(f'ling-feats/train-feats.npy'):
@@ -217,7 +218,6 @@ def main(train: bool = False, evaluate: bool = False, test: bool = False, ckpt: 
         train_dataset = LinguisticFeaturesDataset(train_encodings, train_ling_feats, train_labels)
         val_dataset = LinguisticFeaturesDataset(val_encodings, val_ling_feats, val_labels)
 
-    print("hello")
 
     if train:
         model = LingBertaFormalityClassifier.from_pretrained('roberta-base', return_dict=True)
@@ -225,7 +225,6 @@ def main(train: bool = False, evaluate: bool = False, test: bool = False, ckpt: 
     if evaluate or test:
         model = LingBertaFormalityClassifier.from_pretrained(f'roberta-results/{ckpt}', return_dict=True)
 
-    print("so slow")
 
     training_args = TrainingArguments(
         output_dir='roberta-results/',          # output directory
@@ -255,7 +254,6 @@ def main(train: bool = False, evaluate: bool = False, test: bool = False, ckpt: 
     if evaluate:
         trainer.evaluate()
 
-    print("test time")
 
     if test:
         test_texts, test_labels = load_data('test')
