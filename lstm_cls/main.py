@@ -8,6 +8,7 @@ import torch.nn as nn
 import torch.onnx
 
 import data
+import pickle
 import model
 
 parser = argparse.ArgumentParser(description='PyTorch Wikitext-2 RNN/LSTM Language Model')
@@ -48,6 +49,8 @@ parser.add_argument('--save_dir', type=str, default=None,
                     help='path to save the final model')
 parser.add_argument('--onnx-export', type=str, default='',
                     help='path to export the final model in onnx format')
+parser.add_argument('--use_ling_features', type=bool, default=False,
+                    help='whether to use linguistic features (Pos tags) or not')
 
 parser.add_argument('--nhead', type=int, default=2,
                     help='the number of heads in the encoder/decoder of the transformer model')
@@ -69,12 +72,13 @@ device = torch.device("cuda" if args.cuda else "cpu")
 vocab = data.Vocab()
 if not os.path.isfile(args.vocab_path):
     print('** no vocab file is found. now generate.')
-    data_path = args.data + 'train.tok.csv'
+    file_path = 'train_ling.tok.csv' if args.use_ling_features == True else 'train.tok.csv'
+    data_path = args.data + file_path
     vocab.get_vocab_file(data_path, args.vocab_path, args.vocab_size)
 vocab.add_vocab_from_file(args.vocab_path, args.vocab_size)
 vocab.add_embedding(args.glove_path, args.emsize)
 
-corpus = data.Corpus(args.data, vocab)
+corpus = data.Corpus(args.data, vocab, args.use_ling_features)
 
 
 # Starting from sequential data, batchify arranges the dataset into columns.
@@ -89,17 +93,33 @@ corpus = data.Corpus(args.data, vocab)
 # dependence of e. g. 'g' on 'f' can not be learned, but allows more efficient
 # batch processing.
 
+def store_preds(src_data, src_lens, tgt_data):
+    # Turn on evaluation mode which disables dropout.
+    model.eval()
+    preds = []
+    with torch.no_grad():
+        for i in range(0, len(src_data)):
+            data, lens, targets = get_batch(src_data, src_lens, tgt_data, i)
+            output = model(data, lens)
+            #hidden = repackage_hidden(hidden)
+            pred = torch.argmax(output, axis=1).cpu().numpy().tolist()
+            pred = [str(p) for p in pred]
+            preds.extend(pred)
+    f = open(args.save_dir + '/test_preds.txt', 'w')
+    f.write('\n'.join(preds))
+    f.close()
+
 def metric(output, target):
-    pred = torch.argmax(output)[1]
+    pred = torch.argmax(output, axis=1)
     acc = torch.sum(pred.eq(target)) * 1. / len(target)
     pos = target.eq(1)
     neg = target.eq(0)
     tp = (pred.eq(1)).eq(pos).sum()
     fn = (pred.eq(0)).ne(neg).sum()
     tn = (pred.eq(0)).eq(neg).sum()
-    fp = (pred.eq(1)).ne(neg).sum()
+    fp = (pred.eq(1)).ne(pos).sum()
     tpr = tp * 1. / (tp + fn)
-    tnr = tn * 1. / (tn + fp)
+    tnr = tp * 1. / (tp + fp)
     return acc, tpr, tnr
 # def batchify(data, bsz):
 #     # Work out how cleanly we can divide the dataset into bsz parts.
@@ -213,6 +233,7 @@ def train():
         if batch % args.log_interval == 0 and batch > 0:
             cur_loss = total_loss / args.log_interval
             elapsed = time.time() - start_time
+            print (lr, prec)
             print('| epoch {:3d} | {:5d}/{:5d} batches | lr {:02.2f} | ms/batch {:5.2f} | '
                   'loss {:5.2f} | acc {:5.2f} | recall {:5.2f} | prec {:5.2f}'.format(
                     epoch, batch, len(train_data), lr, elapsed * 1000 / args.log_interval, 
@@ -245,9 +266,9 @@ if True:
             train()
             acc, recall, prec = evaluate(val_data, val_lens, val_tgt)
             print('-' * 89)
-            print('| end of epoch {:3d} | time: {:5.2f}s | valid acc {:5.2f} | valid recall {:5.2f} | valid prec {:5.2f}'
-                  'valid ppl {:8.2f}'.format(epoch, (time.time() - epoch_start_time),
-                                             acc, recall, prec))
+            #print('| end of epoch {:3d} | time: {:5.2f}s | valid acc {:5.2f} | valid recall {:5.2f} | valid prec {:5.2f}'
+                  #'valid ppl {:8.2f}'.format(epoch, (time.time() - epoch_start_time),
+                                             #acc, recall, prec))
             print('-' * 89)
             # Save the model if the validation loss is the best we've seen so far.
             if not best_val_acc or acc < best_val_acc:
@@ -261,7 +282,7 @@ if True:
         print('-' * 89)
         print('Exiting from training early')
 else:
-    val_loss = evaluate(val_data)
+    val_loss = evaluate(val_data, val_lens, val_tgt)
     print(val_loss)
 
 # Load the best saved model.
@@ -274,10 +295,12 @@ with open(os.path.join(args.save_dir, 'model.pt'), 'rb') as f:
         model.rnn.flatten_parameters()
 
 # Run on test data.
-test_loss = evaluate(test_data)
+test_loss = evaluate(test_data, test_lens, test_tgt)
+store_preds(test_data, test_lens, test_tgt)
 print('=' * 89)
-print('| End of training | test loss {:5.2f} | test ppl {:8.2f}'.format(
-    test_loss, math.exp(test_loss)))
+#print('| End of training | test loss {:5.2f} | test ppl {:8.2f}'.format(
+ #   test_loss, math.exp(test_loss)))
+print ('test accuracy : ', test_loss)
 print('=' * 89)
 
 if len(args.onnx_export) > 0:
