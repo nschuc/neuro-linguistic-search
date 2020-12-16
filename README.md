@@ -1,3 +1,6 @@
+## Resources & Data formats
+
+TBA
 
 ## Running Models
 
@@ -36,3 +39,7 @@ cd lstm_cls
 python main.py --data <data_dir> --glove_path <path to glove embeddings> --epochs 3 --cuda --save_dir outputs --use_ling_features True
 ```
 It acheives around 91.95% accuracy on test set, a marginal improvement over previous model.
+
+## Analyzing Test Predictions
+
+TBA
