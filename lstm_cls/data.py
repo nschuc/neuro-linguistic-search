@@ -16,6 +16,7 @@ class Vocab(object):
         self.embedding = None
 
     def get_vocab_file(self, data_path, vocab_path, vocab_size=50000):
+        data_path = data_path.split('/')[-1]
         df = pd.read_csv(data_path)
         sents = df.sent.tolist()
         all_words = []
@@ -51,16 +52,19 @@ class Vocab(object):
             embedding_matrix = np.zeros(shape=(len(self.word_list), embed_size))
 
             for line in f:
-                splitLine = line.split()
-                word = splitLine[0]
-                if word in w_set:  # only extract embeddings in the word_list
-                    # print(word)
-                    # print(splitLine[1:])
-                    embedding = np.array([float(val) for val in splitLine[1:]])
-                    model[word] = embedding
-                    embedding_matrix[self.word2idx[word]] = embedding
-                    # if len(model) % 1000 == 0:
-                        # print("processed %d data" % len(model))
+                try :
+                    splitLine = line.split()
+                    word = splitLine[0]
+                    if word in w_set:  # only extract embeddings in the word_list
+                        #print(word)
+                        #print(splitLine[1:])
+                        embedding = np.array([float(val) for val in splitLine[1:]])
+                        model[word] = embedding
+                        embedding_matrix[self.word2idx[word]] = embedding
+                        # if len(model) % 1000 == 0:
+                            # print("processed %d data" % len(model))
+                except :
+                    pass
         self.embedding = torch.FloatTensor(embedding_matrix)
         print("** %d words out of %d has embeddings in the glove file" % (len(model), len(self.word_list)))
 
@@ -68,12 +72,16 @@ class Vocab(object):
         return len(self.word2idx)
 
 class Corpus(object):
-    def __init__(self, path, vocab):
+    def __init__(self, path, vocab, use_ling_features):
         self.vocab = vocab
-        # path = /research/king3/lijj/tesla/data/style/style_data/Family_Relationships/cls/
-        self.train_src, self.train_lens, self.train_tgt = self.tokenize(os.path.join(path, 'train.tok.csv'))
-        self.valid_src, self.valid_lens, self.valid_tgt = self.tokenize(os.path.join(path, 'tune.tok.csv'))
-        self.test_src, self.test_lens, self.test_tgt = self.tokenize(os.path.join(path, 'test.tok.csv'))
+        if use_ling_features :
+            self.train_src, self.train_lens, self.train_tgt = self.tokenize('train_ling.tok.csv')
+            self.valid_src, self.valid_lens, self.valid_tgt = self.tokenize('tune_ling.tok.csv')
+            self.test_src, self.test_lens, self.test_tgt = self.tokenize('test_ling.tok.csv')
+        else :
+            self.train_src, self.train_lens, self.train_tgt = self.tokenize('train.tok.csv')
+            self.valid_src, self.valid_lens, self.valid_tgt = self.tokenize('tune.tok.csv')
+            self.test_src, self.test_lens, self.test_tgt = self.tokenize('test.tok.csv')
 
     def tokenize(self, path, max_length=40):
         # numericalize input seq. pad seq.
